@@ -1,0 +1,31 @@
+{
+  "name": "htmlparse",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/sbeh/htmlparse.git"
+  },
+  "keywords": [
+    "html",
+    "parse"
+  ],
+  "author": "sbeh",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sbeh/htmlparse/issues"
+  },
+  "homepage": "https://github.com/sbeh/htmlparse#readme",
+  "dependencies": {
+    "opn": "latest"
+  },
+  "devDependencies": {
+    "asar": "^0.14.3",
+    "electron": "^1.8.4"
+  }
+}

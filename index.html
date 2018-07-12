@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>HtmlParse</title>
+<script src=https://unpkg.com/vue/dist/vue.js></script>
+<script src=https://unpkg.com/lodash/lodash.js></script>
+<script src=https://unpkg.com/regenerate/regenerate.js></script>
+<style>
+body {
+  font-family: Helvetica Neue, Arial, sans-serif;
+  font-size: 14px;
+  color: #444;
+}
+
+table {
+  border: 2px solid #42b983;
+  border-radius: 3px;
+  background-color: #fff;
+}
+
+th {
+  background-color: #42b983;
+  color: rgba(255,255,255,0.66);
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+td {
+  background-color: #f9f9f9;
+}
+
+th, td {
+  /* min-width: 120px; */
+  /* padding: 10px 20px; */
+}
+
+th.active {
+  color: #fff;
+}
+
+th.active .arrow {
+  opacity: 1;
+}
+
+.arrow {
+  display: inline-block;
+  vertical-align: middle;
+  width: 0;
+  height: 0;
+  margin-left: 5px;
+  opacity: 0.66;
+}
+
+.arrow.asc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid #fff;
+}
+
+.arrow.dsc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #fff;
+}
+
+input, textarea {
+    width: 100%
+}
+
+.error {
+  background-color: red;
+}
+</style>
+</head>
+<body>
+<template id=grid-template>
+<table>
+    <thead>
+    <tr>
+        <th v-for="key in columns"
+        @click="sortBy(key)"
+        :class="{ active: sortKey == key }">
+            {{ key | capitalize }}
+            <span class="arrow" :class="sortOrders[key] > 0 ? 'asc' : 'dsc'"></span>
+        </th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr v-for="entry in filteredData" @click='$emit("click", entry)'>
+        <td v-for="key in columns">
+            <i v-if='entry[key] === undefined' style='color: lightgrey'>undef</i>
+            <i v-else-if='entry[key] === null' style='color: lightgrey'>null</i>
+            <span v-else>{{entry[key]}}</span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</template>
+<script>
+Vue.component('grid', {
+  template: '#grid-template',
+  props: {
+    data: Array,
+    columns: Array,
+    filterKey: String
+  },
+  data() {
+    var sortOrders = {}
+    this.columns.forEach(function (key) {
+        sortOrders[key] = 1
+    })
+    return {
+      sortKey: '',
+      sortOrders: sortOrders
+    }
+  },
+  computed: {
+    filteredData: function () {
+      var sortKey = this.sortKey
+      var filterKey = this.filterKey && this.filterKey.toLowerCase()
+      var order = this.sortOrders[sortKey] || 1
+      var data = this.data
+      if (filterKey) {
+        data = data.filter(function (row) {
+          return Object.keys(row).some(function (key) {
+            return String(row[key]).toLowerCase().indexOf(filterKey) > -1
+          })
+        })
+      }
+      if (sortKey) {
+        data = data.slice().sort(function (a, b) {
+          a = a[sortKey]
+          b = b[sortKey]
+          return (a === b ? 0 : a > b ? 1 : -1) * order
+        })
+      }
+      return data
+    }
+  },
+  filters: {
+    capitalize: function (str) {
+      return str.charAt(0).toUpperCase() + str.slice(1)
+    }
+  },
+  methods: {
+    sortBy: function (key) {
+      this.sortKey = key
+      this.sortOrders[key] = this.sortOrders[key] * -1
+    }
+  }
+})
+</script>
+
+<template id=site-template>
+<div :class='{ error: error }'>
+    {{value.name}}
+    <i v-if=result :class='{error: result.length != value.expected}'> ({{result.length}} results)</i>
+    <button v-if='value.url && value.method && value.regexp' @click=request>R</button>
+    <button v-if=result @click='$emit("submit", _.cloneDeep(result))'>S</button>
+    <button @click='mode = "edit"'>E</button>
+    <button @click='mode = "content"'>C</button>
+    <button @click='mode = "data"'>D</button>
+    <template v-if='mode != "list"'>
+            <button @click='mode = "list"'>^</button>
+            <div>
+                <template v-if='mode == "content"'>
+                    <textarea v-model=content></textarea>
+                    <button @click=request>R</button>
+                </template>
+                <template v-else-if='mode == "data"'>
+                    <input v-model=value.expected placeholder='Number of expected results' />
+                    <input v-model=value.columns />
+                    <textarea v-model=value.regexp></textarea>
+                    <grid v-if=result :data=result
+                          :columns='result|columns'></grid>
+                </template>
+                <template v-else>
+                    <input v-model=value.url placeholder='Site url ($ will be replaced with URL parameter)' />
+                    <input v-model=value.urlparam placeholder='Site parameters (example for pages: 1,2,3)' />
+                    <input v-model=value.method placeholder='Http method'/>
+                    <input v-model=value.data placeholder='Post data'/>
+                    <input v-model=value.link placeholder='URL to open for details ($ will be replaced with ID)' />
+                    <button @click='$emit("del")'>X</button>
+                </template>
+                {{error}}
+            </div>
+    </template>
+</div>
+</template>
+<script>
+const { fork } = require('child_process')
+
+var regexpProc
+function regexpProcStart() {
+    regexpProc = fork(__dirname + '/regexp.js')
+    regexpProc.on('message', regexpProcMessage)
+}
+regexpProcStart()
+function regexpProcRestart() {
+    regexpProc.kill()
+    regexpProcStart()
+}
+
+var regexpProcCallback
+var regexpProcTimer
+var regexpProcQueue = []
+function regexpProcSend(data, callback) {
+    if (regexpProcTimer) {
+        console.log('REGEXP delayed')
+
+        regexpProcQueue.push(arguments)
+        return false
+    }
+
+    regexpProcTimer = setTimeout(() => {
+        console.log('REGEXP Timeout')
+
+        regexpProcRestart()
+        regexpProcTimer = null
+
+        regexpProcCallback({ error: 'Regexp timed out' })
+    
+        if (regexpProcQueue[0])
+            regexpProcSend.apply(null, regexpProcQueue.pop())
+    }, 3000)
+    regexpProcCallback = callback
+
+    console.log('REGEXP Send', data)
+    regexpProc.send(data)
+
+    return true
+}
+
+function regexpProcMessage(data) {
+    console.log('REGEXP Receive', data)
+
+    clearTimeout(regexpProcTimer)
+    regexpProcTimer = null
+
+    regexpProcCallback(data)
+
+    if (regexpProcQueue[0])
+        regexpProcSend.apply(null, regexpProcQueue.pop())
+}
+
+Vue.component('site', {
+    template: '#site-template',
+    props: ['value'],
+    data() {return {
+        mode: 'list',
+        error: null,
+        content: null,
+        result: null,
+    }},
+    created() {
+        this.$parent.$on('request', this.request)
+
+        this.$watch('value.regexp', this.regexp)
+        this.$watch('content', this.regexp)
+    },
+    methods: {
+        regexp_cb(data) {
+            this.error = data.error
+
+            if (data.result && data.result[0] && this.value.columns) {
+                this.result = new Array(data.result.length)
+                var columns = this.value.columns.split(',')
+
+                for(var x = 0; x < data.result.length; ++x) {
+                    this.result[x] = {}
+                    for(var y = 0; y < data.result[x].length; ++y) {
+                        var c = columns[y] ? columns[y] : y
+                        if (this.result[x][c])
+                            this.result[x][c] += ' ' + data.result[x][y]
+                        else
+                            this.result[x][c] = data.result[x][y]
+                    }
+                }
+            }
+        },
+        regexp() {
+            if (this.value.regexp)
+                regexpProcSend({
+                    regexp: this.value.regexp.replace(/[\r\n]/g, '[\\W\\w]+?'),
+                    content: this.content,
+                }, this.regexp_cb)
+        },
+        request_cb(ev) {
+            var j = ev.currentTarget
+            if (j.readyState == XMLHttpRequest.DONE) {
+                console.log('Fetch completed', j.status, j.statusText)
+                if (j.status == 200)
+                    this.content += j.response
+                else {
+                    this.content = null
+                    this.error = j.statusText
+                }
+            }
+        },
+        request() {
+            this.content = ''
+            this.error = null
+
+            var urlparam = this.value.urlparam
+            if (!urlparam)
+                urlparam = ''
+            urlparam = urlparam.split(',')
+
+            var go
+            go = () => {
+                var p = urlparam.shift()
+                if (p === undefined)
+                    return
+
+                console.log('Fetch starting', this.value.name, 'Parameter', p)
+                var j = new XMLHttpRequest()
+                j.onreadystatechange = (ev) => {
+                    this.request_cb(ev)
+
+                    if (this.error)
+                        return
+
+                    if (j.readyState == XMLHttpRequest.DONE)
+                        setTimeout(go, 2000 + Math.random() * 1000)
+                } 
+                j.open(this.value.method, this.value.url.replace('$', p))
+                if (this.value.method == 'POST')
+                    j.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                j.send(this.value.data)
+            }
+            go()
+        },
+    },
+})
+</script>
+
+<template id=newsite-template>
+<div>
+    <input v-model=site.name placeholder='Site name' />
+    <button @click='$emit("add", site); reset()'>+</button>
+</div>
+</template>
+<script>
+Vue.component('newsite', {
+    template: '#newsite-template',
+    data() {return {
+        site: {
+            name: null,
+            url: null,
+            urlparam: null,
+            method: null,
+            data: null,
+            regexp: null,
+            columns: null,
+            expected: null
+        },
+    }},
+    created() {
+        this.reset()
+    },
+    methods: {
+        reset() {
+            this.site.name = null
+            this.site.url = null
+            this.site.urlparam = null
+            this.site.method = null
+            this.site.data = null
+            this.site.regexp = null
+            this.site.columns = null
+            this.site.expected = null
+            this.site.link = null
+        },
+    },
+})
+</script>
+
+
+<div id=app>
+    <input v-model=columnsOrder placeholder='Order of columns' />
+    <h2>
+        Sites:
+        <button @click='$emit("request")'>R+</button>
+    </h2>
+    <site v-for='(site, i) in sites' v-model=sites[i] @submit='submit(site, $event)' @del=siteDel(i)></site>
+    <newsite @add=siteAdd></newsite>
+    <template v-if=changesUncommited.length>
+        <h2>Changes:
+            <button @click='changes = []'>D+</button>
+        </h2>
+        <grid :data=changesUncommited
+              :columns='changesUncommited|columns'
+              @click=open($event)></grid>
+        <button @click=commit>C</button>
+    </template>
+    <template v-if=resultsUnassigned.length>
+        <h2>
+            unassigned Results:
+        </h2>
+        <grid :data=resultsUnassigned
+              :columns='resultsUnassigned|columns'
+              @click=open($event)></grid>
+    </template>
+    <template v-if=objectDetail.ID>
+        <h2>
+            Object details:
+            <button @click='objectDetail = {}'>^</button>
+            <button v-if=!merge.includes(objectDetail) @click=merge.push(objectDetail)>m</button>
+            <button v-if=merge[1] @click=doMerge>M</button>
+        </h2>
+        <h3>
+            Result details:
+        </h3>
+        <grid :data=objectDetailResults
+              :columns=objectDetailResults|columns
+              @click=open($event)></grid>
+        <template v-if=objectDetailChanges.length>
+            <h3>Change details:</h3>
+            <grid :data=objectDetailChanges
+                  :columns=objectDetailChanges|columns
+                  @click=open($event)></grid>
+        </template>
+    </template>
+    <template v-if=objects.length>
+        <h2>
+            Objects:
+        </h2>
+        <grid :data=objects
+              :columns='objects|columns'
+              @click='objectDetail = $event'></grid>
+    </template>
+    
+    <h2>Internal</h2>
+    <grid   :data=resultsFromCommittedChanges
+            :columns='resultsFromCommittedChanges|columns'></grid>
+    <grid   :data=changesFromActualResultsAndResultsFromCommittedChanges
+            :columns='changesFromActualResultsAndResultsFromCommittedChanges|columns'></grid>
+</div>
+<script>
+var opn = require('opn')
+
+var electron = require('electron')
+var ipc = electron.ipcRenderer
+
+Vue.filter('columns', function (value) {
+    var columns = []
+    value.forEach(r => columns = _.union(columns, Object.keys(r).filter(c => c[0] != '_')))
+    if (app)
+        columns = _.union(
+            _.intersection(app.$data.columnsOrder.split(','), columns),
+            columns
+        )
+    return columns
+})
+
+var app = new Vue({
+    el: "#app",
+    data: {
+        columnsOrder: '',
+        sites: null,
+        results: [],
+        changes: [],
+        objects: [],
+        objectDetail: {},
+        merge: [],
+    },
+    created() {
+        ipc.on('storeSet', this.storeSet)
+        ipc.on('storeSetDone', this.storeSetDone)
+
+        ipc.send('storeGet')
+
+        this.$watch('columnsOrder', this.storeChanged, {deep: true})
+        this.$watch('sites', this.storeChanged, {deep: true})
+        this.$watch('results', this.storeChanged, {deep: true})
+        this.$watch('changes', this.storeChanged, {deep: true})
+        this.$watch('objects', this.storeChanged, {deep: true})
+    },
+    computed: {
+        resultsUnassigned() {
+            return this.results.filter(r => !r.Object)
+        },
+        changesUncommited() {
+            return this.changes.filter(c => !c.Committed)
+        },
+        objectDetailResults() {
+            return this.results.filter(r => r.Object && r.Object === this.objectDetail.ID)
+        },
+        objectDetailChanges() {
+            return this.changes.filter(c => c.Committed && this.objectDetailResults.find(r => c.Site === r.Site && c.ID === r.ID))
+        },
+        resultsFromCommittedChanges() {
+            var results = []
+            
+            this.changes
+                .filter(c => c.Committed === true)
+                .forEach(c => {
+                    c = _.cloneDeep(c)
+                    var rs = results.filter(r => r.Site === c.Site && r.ID === c.ID)
+
+                    if (c.Change === 'New' || c.Change === 'NewRes') {
+                        delete c.Change
+                        delete c.Committed
+                        delete c.Time
+                        
+                        if (rs.length === 0)
+                            results.push(c)
+                        else
+                            throw new Error('To be created result with Site and ID = ' + c.Site + ' and ' + c.ID + ' has already been found')
+                    } else if (c.Change === 'Upd' || c.Change === 'UpdRes') {
+                        delete c.Change
+                        delete c.Committed
+                        delete c.Time
+                        
+                        if(rs.length === 1)
+                            Object.assign(rs[0], c)
+                        //else
+                            //throw new Error('Found none or multiple results with Site and ID = ' + c.Site + ' and ' + c.ID + ' when trying to update exactly one result')
+                    } else if (c.Change === 'Del' || c.Change === 'DelRes') {
+                        if(rs.length === 1)
+                            results.splice(rs, 1)
+                    }
+                })
+
+            return results
+        },
+        changesFromActualResultsAndResultsFromCommittedChanges() {
+            var changes = []
+
+            this.resultsFromCommittedChanges.forEach(rn => {
+                var ros = this.results.filter(ro => ro.Site === rn.Site && ro.ID === rn.ID)
+                if (ros.length === 0)
+                    changes.push(Object.assign({
+                        Change: 'New'
+                    }, rn))
+                else if(ros.length === 1) {
+                    var change = {}
+                    var equal = true
+
+                    var ro = ros[0]
+                    _.union(
+                        Object.keys(rn),
+                        Object.keys(ro)
+                    ).forEach(c => {
+                        if (rn[c] === ro[c])
+                            return
+                        equal = false
+                        change[c] = rn[c]
+                    })
+
+                    if (equal)
+                        return
+                        
+                    ;['Change', 'Site', 'ID'].forEach(c => {
+                        if (change[c])
+                            throw new Error('Not allowed property in Result: ' + c)
+                    })
+                    change.Change = 'Upd'
+                    change.Site = rn.Site
+                    change.ID = rn.ID
+                    changes.push(change)
+                } else
+                    throw new Error('Found multiple results with Site and ID = ' + c.Site + ' and ' + c.ID)
+            })
+
+            return changes
+        }
+    },
+    methods: {
+        open(event) {
+            this.sites.filter(s => s.name === event.Site).forEach(s => {
+                opn(s.link.replace('$', event.ID))
+            })
+        },
+
+        doMerge() {
+            var to = this.merge.pop()
+            this.merge.forEach(o => {
+                this.results
+                    .filter(r => o.ID === r.Object)
+                    .forEach(r => r.Object = to.ID)
+                this.objects.splice(this.objects.indexOf(o), 1)
+            })
+            this.merge = []
+        },
+
+        submit(site, result) {
+            var nextFreeObjectID = 1
+            while(this.objects.findIndex(o => o.ID === nextFreeObjectID) !== -1 ||
+                  this.changes.findIndex(c => c.Change === 'NewObj' && c.ID === nextFreeObjectID) !== -1)
+                ++nextFreeObjectID
+
+            var resultState = this.results.filter(ro => ro.Site === site.name)
+            resultState.forEach(ro => {
+                ro = _.cloneDeep(ro)
+
+                var i = result.findIndex(rn => ro.ID === rn.ID)
+                if (i === -1) {
+                    this.changes.push(Object.assign({Change: 'DelRes'}, ro))
+                    if (ro.Object && this.results.filter(rs => ro.Object === rs.Object).length === 1)
+                        this.changes.push(Object.assign({Change: 'DelObj'}, this.objects.find(o => o.ID === ro.Object)))
+                    return
+                }
+
+                delete ro.Site
+                delete ro.Object
+
+                var rn = result.splice(i, 1)[0]
+
+                if (_.isEqual(ro, rn))
+                    return
+
+                var change = {}
+                _.union(
+                    Object.keys(ro),
+                    Object.keys(rn)
+                ).forEach(c => {
+                    if (ro[c] === rn[c])
+                        return
+                    change[c] = rn[c]
+                })
+                change.Change = 'UpdRes'
+                change.Site = site.name
+                change.ID = ro.ID
+                this.changes.push(change)
+            })
+            
+            result.forEach(rn => {
+                var os = this.objects.filter(o =>
+                    o.Titel.substring(0, 65) === rn.Titel.substring(0, 65) &&
+                    o.Preis * 0.9 < rn.Preis && rn.Preis < o.Preis * 1.1 &&
+                    o.Wohn * 0.8 < rn.Wohn && rn.Wohn < o.Wohn * 1.2
+                )
+
+                if (os.length > 1) {
+                    this.changes.push(Object.assign({Change: 'NewRes', Site: site.name}, rn))
+                    return
+                }
+
+                var object
+
+                if (os.length === 1)
+                    object = os[0]
+                else {
+                    object = _.cloneDeep(rn)
+                    delete object.Site
+                    object.ID = nextFreeObjectID
+                    this.changes.push(Object.assign({Change: 'NewObj'}, object))
+
+                    while(this.objects.findIndex(o => o.ID === nextFreeObjectID) !== -1 ||
+                          this.changes.findIndex(c => c.Change === 'NewObj' && c.ID === nextFreeObjectID) !== -1)
+                        ++nextFreeObjectID
+                }
+
+                this.changes.push(Object.assign({Change: 'NewRes', Object: object.ID, Site: site.name}, rn))
+            })
+        },
+        commit() {
+            this.changesUncommited.forEach(c => {
+                var cc = _.cloneDeep(c)
+                delete cc.Change
+
+                if(c.Change === 'NewObj') {
+                    this.objects.push(Object.assign({}, cc))
+                    return
+                } else if(c.Change === 'DelObj') {
+                    var o = this.objects.findIndex(o => o.ID === c.ID)
+                    this.objects.splice(o, 1)
+                    return
+                }
+                
+                if (c.Change === 'NewRes') 
+                    this.results.push(Object.assign({}, cc))
+                else {
+                    var r = this.results.findIndex(r => r['Site'] === c['Site'] && r['ID'] === c['ID'])
+                    if (c.Change === 'DelRes')
+                        this.results.splice(r, 1)
+                    else {
+                        delete cc.Site
+                        delete cc.ID
+
+                        this.$set(this.results, r, Object.assign(this.results[r], cc))
+                    }
+                }
+
+                this.$set(c, 'Committed', true)
+                this.$set(c, 'Time', Date.now())
+            })
+
+            this.changes = this.changes.filter(c => c.Committed)
+        },
+        
+        storeChanged() {
+            if (this.ignoreUpdate) {
+                console.log('Store Update ignored')
+                return
+            }
+
+            if (this.storeSetRunning) {
+                console.log('Store running, Update delayed')
+                this.storeSetPending = true
+                return
+            }
+
+            console.log('Store writing')
+            this.storeSetRunning = true
+            this.storeSetPending = false
+            ipc.send('storeSet', {
+                columnsOrder: this.columnsOrder,
+                sites: this.sites,
+                results: this.results,
+                objects: this.objects,
+                changes: this.changes.filter(c => c.Committed)
+            })
+        },
+        storeSetDone() {
+            console.log('Store wrote')
+            this.storeSetRunning = false
+
+            if (this.storeSetPending) {
+                console.log('Store resuming delayed Update')
+                this.storeSetRunning = true
+                this.storeSetPending = false
+                ipc.send('storeSet', {
+                    columnsOrder: this.columnsOrder,
+                    sites: this.sites,
+                    results: this.results,
+                    objects: this.objects,
+                    changes: this.changes.filter(c => c.Committed)
+                })
+            }
+        },
+        storeSet(_, data) {
+            console.log('Store read')
+
+            try {
+                this.ignoreUpdate = true
+                Object.assign(this.$data, data)
+            } finally {
+                Vue.nextTick(() => {
+                    this.ignoreUpdate = false
+                })
+            }
+        },
+
+        siteAdd(site) {
+            this.sites.push(Object.assign({}, site))
+        },
+        siteDel(i) {
+            this.sites.splice(i, 1)
+        },
+    },
+})
+</script>
+</body>
+</html>
