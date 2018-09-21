@@ -9,7 +9,7 @@ function createWindow () {
     window = new electron.BrowserWindow({width: 800, height: 600})
 
     // and load the index.html of the app.
-    window.loadURL(`file://${__dirname}/index.html`)
+    window.loadURL(`file://${__dirname}/gui.html`)
 
     // Open the DevTools.
     window.webContents.openDevTools()

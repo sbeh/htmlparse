@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>HtmlParse</title>
+
+<script src=https://unpkg.com/vue></script>
+<script src=https://unpkg.com/lodash></script>
+
+<style>
+body {
+  font-family: Helvetica Neue, Arial, sans-serif;
+  font-size: 14px;
+  color: #444;
+}
+
+div {
+    overflow: auto;
+}
+
+table {
+  border: 2px solid #42b983;
+  border-radius: 3px;
+  background-color: #fff;
+}
+
+th {
+  background-color: #42b983;
+  color: rgba(255,255,255,0.66);
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+td {
+  background-color: #f9f9f9;
+}
+
+/* th, td {
+  min-width: 120px;
+  padding: 10px 20px;
+} */
+
+th.active {
+  color: #fff;
+}
+
+th.active .arrow {
+  opacity: 1;
+}
+
+.arrow {
+  display: inline-block;
+  vertical-align: middle;
+  width: 0;
+  height: 0;
+  margin-left: 5px;
+  opacity: 0.66;
+}
+
+.arrow.asc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid #fff;
+}
+
+.arrow.dsc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #fff;
+}
+
+input, textarea {
+    width: 100%
+}
+
+.error {
+  background-color: red;
+}
+</style>
+</head>
+<body>
+<template id=grid-template>
+<table>
+    <thead>
+    <tr>
+        <th v-for="key in columns"
+        @click="sortBy(key)"
+        :class="{ active: sortKey == key }">
+            {{ key | capitalize }}
+            <span class="arrow" :class="sortOrders[key] > 0 ? 'asc' : 'dsc'"></span>
+        </th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr v-for="entry in filteredData" @click='$emit("click", entry)'>
+        <td v-for="key in columns">
+            <i v-if='entry[key] === undefined' style='color: lightgrey'>undef</i>
+            <i v-else-if='entry[key] === null' style='color: lightgrey'>null</i>
+            <span v-else>{{entry[key]}}</span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</template>
+
+<template id=site-template>
+<div :class='{ error: error }'>
+    {{value.name}}
+    <i v-if=value.results.length :class='{error: value.results.length != value.expected}'> ({{value.results.length}} results)</i>
+    <button v-if='value.url && value.method && value.regexp' @click=request>R</button>
+    <button @click='mode = "edit"'>E</button>
+    <button @click='mode = "content"'>C</button>
+    <button @click='mode = "data"'>D</button>
+    <template v-if='mode != "list"'>
+        <button @click='mode = "list"'>^</button>
+        <div>
+            <template v-if='mode == "content"'>
+                <textarea v-model=content></textarea>
+                <button @click=request>R</button>
+            </template>
+            <template v-else-if='mode == "data"'>
+                <input v-model=value.expected placeholder='Number of expected results' />
+                <input v-model=value.columns />
+                <textarea v-model=value.regexp></textarea>
+                <grid   v-if=value.results.length
+                        :data=value.results
+                        :columns=value.results|columns></grid>
+            </template>
+            <template v-else>
+                <input v-model=value.url placeholder='Site url ($ will be replaced with URL parameter)' />
+                <input v-model=value.urlparam placeholder='Site parameters (example for pages: 1,2,3)' />
+                <input v-model=value.method placeholder='Http method'/>
+                <input v-model=value.data placeholder='Post data'/>
+                <input v-model=value.link placeholder='URL to open for details ($ will be replaced with ID)' />
+                <button @click='$emit("del")'>X</button>
+            </template>
+            {{error}}
+        </div>
+    </template>
+</div>
+</template>
+
+<template id=newsite-template>
+<div>
+    <input v-model=site.name placeholder='Site name' />
+    <button @click='$emit("add", site); reset()'>+</button>
+</div>
+</template>
+
+<div id=app>
+    <div style='height: 300px'>
+        <input v-model=columnsOrder placeholder='Order of columns' />
+        <div style='float: left; width: 80%'>
+            <h2>
+                Sites:
+                <button @click='$emit("request")'>R+</button>
+            </h2>
+            <site v-for='(site, i) in sites' v-model=sites[i] @del=siteDel(i)></site>
+            <newsite @add=siteAdd></newsite>
+        </div>
+        <div style='height: 100%'>
+            <h2>
+                Locations:
+            </h2>
+            <grid :data=locationGroups
+                :columns=locationGroups|columns></grid>
+        </div>
+    </div>
+    <div style='height: 700px'>
+        <template v-if=changesUncommitted.length>
+            <h2>Changes:</h2>
+            <grid :data=changesUncommitted
+                :columns='changesUncommitted|columns'
+                @click=open($event)></grid>
+            <button @click=commit>C</button>
+        </template>
+        <template v-if=groupDetail.length>
+            <h2>
+                Group details:
+                <button @click='groupDetail = []'>^</button>
+                <button v-if='groupDetail.length > 1' @click=mergeGroup>M</button>
+                <button v-if='groupDetail.length > 1' @click=mergeLocation>L</button>
+            </h2>
+            <h3>
+                Result details:
+            </h3>
+            <grid :data=groupDetailResults
+                :columns=groupDetailResults|columns
+                @click=open($event)></grid>
+            <template v-if=groupDetailChanges.length>
+                <h3>Change details:</h3>
+                <grid :data=groupDetailChanges
+                    :columns=groupDetailChanges|columns
+                    @click=open($event)></grid>
+            </template>
+        </template>
+        <template v-if=groups.length>
+            <h2>
+                Groups:
+            </h2>
+            <grid :data=groups
+                :columns='groups|columns'
+                @click=groupDetailToggle></grid>
+        </template>
+        
+        <h2>Internal</h2>
+        <!-- <grid   :data=resultsFromCommittedChanges
+                :columns='resultsFromCommittedChanges|columns'></grid> -->
+        <!-- <grid   :data=changesFromActualResultsAndResultsFromCommittedChanges
+                :columns='changesFromActualResultsAndResultsFromCommittedChanges|columns'></grid> -->
+        <!-- <grid   :data=compareObjectsAndObjectsFromResults
+                :columns=compareObjectsAndObjectsFromResults|columns></grid> -->
+    </div>
+</div>
+
+<script src=gui.js></script>
+</body>
+</html>
