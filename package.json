@@ -25,7 +25,6 @@
     "opn": "latest"
   },
   "devDependencies": {
-    "asar": "^0.14.3",
-    "electron": "^1.8.4"
+    "electron": "latest"
   }
 }
