@@ -164,11 +164,13 @@ input, textarea {
     </div>
     <div style='height: 700px'>
         <template v-if=changesUncommitted.length>
-            <h2>Changes:</h2>
+            <h2>
+                Changes:
+                <button @click=commit>C</button>
+            </h2>
             <grid :data=changesUncommitted
                 :columns='changesUncommitted|columns'
                 @click=open($event)></grid>
-            <button @click=commit>C</button>
         </template>
         <h2>
             Results:
