@@ -170,34 +170,11 @@ input, textarea {
                 @click=open($event)></grid>
             <button @click=commit>C</button>
         </template>
-        <template v-if=groupDetail.length>
-            <h2>
-                Group details:
-                <button @click='groupDetail = []'>^</button>
-                <button v-if='groupDetail.length > 1' @click=mergeGroup>M</button>
-                <button v-if='groupDetail.length > 1' @click=mergeLocation>L</button>
-            </h2>
-            <h3>
-                Result details:
-            </h3>
-            <grid :data=groupDetailResults
-                :columns=groupDetailResults|columns
-                @click=open($event)></grid>
-            <template v-if=groupDetailChanges.length>
-                <h3>Change details:</h3>
-                <grid :data=groupDetailChanges
-                    :columns=groupDetailChanges|columns
-                    @click=open($event)></grid>
-            </template>
-        </template>
-        <template v-if=groups.length>
-            <h2>
-                Groups:
-            </h2>
-            <grid :data=groups
-                :columns='groups|columns'
-                @click=groupDetailToggle></grid>
-        </template>
+        <h2>
+            Results:
+        </h2>
+        <grid :data=results
+            :columns='results|columns'></grid>
         
         <h2>Internal</h2>
         <!-- <grid   :data=resultsFromCommittedChanges

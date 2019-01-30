@@ -247,32 +247,12 @@ Vue.filter('columns', function (value) {
     return columns
 })
 
-function parse(value, min = 0) {
-    if (value === null || value === undefined)
-        return undefined
-
-    if (/^[+-]?\d?\d?\d(\.?\d\d\d)*(,\d+)?$/.test(value)) {
-        var v = Number.parseFloat(value.replace('.', '').replace(',', '.'))
-        if (min <= v)
-            return v
-    }
-    if(/^[+-]?\d?\d?\d(\,?\d\d\d)*(.\d+)?$/.test(value)) {
-        var v = Number.parseFloat(value.replace(',', ''))
-        if (min <= v)
-            return v
-    }
-        
-    console.warn('Can not parse float', value)
-    return undefined
-}
-
 var app = new Vue({
     el: "#app",
     data: {
         columnsOrder: '',
         sites: [],
         changes: [],
-        groupDetail: [],
     },
     created() {
         ipc.on('storeSet', this.storeSet)
@@ -312,81 +292,6 @@ var app = new Vue({
                 }
             })
             return results
-        },
-        groups() {
-            function groupFromResult(r) {
-                var g = Object.assign({}, r)
-                delete g.Site
-                delete g.ID
-
-                if (Number.isInteger(g.Group) && g.Group > 0)
-                    g.ID = g.Group
-                delete g.Group             
-
-                g.Preis = parse(g.Preis, 10000)
-                g.Wohn = parse(g.Wohn, 70)
-                g.Zimmer = parse(g.Zimmer, 3)
-                g.Grund = parse(g.Grund, 100)
-
-                return g
-            }
-
-            var groups = []
-            var resultsNotInGroup = this.results.slice()
-
-            var r
-            while((r = resultsNotInGroup.shift()) !== undefined) {
-                var g = groupFromResult(r)
-                groups.push(g)
-
-                do {
-                    var groupChanged = false
-
-                    this.groupResults(g).forEach(r => {
-                        var gn = groupFromResult(r)
-                        _.difference(
-                            Object.keys(gn),
-                            Object.keys(g)
-                        ).forEach(c => {
-                            g[c] = gn[c]
-
-                            groupChanged = true
-                        })
-                    })
-                } while(groupChanged)
-
-                this.groupResults(g).forEach(r => {
-                    var i = resultsNotInGroup.indexOf(r)
-                    if (i === -1) {
-                        // TODO work around?
-                        i = resultsNotInGroup.findIndex(rn => r.Site === rn.Site && r.ID === rn.ID)
-                        if (i !== -1)
-                            console.warn('app.computed.groups', 'Same key, different instances', resultsNotInGroup[i], r)
-                    }
-                    if (i !== -1)
-                        resultsNotInGroup.splice(i, 1)
-                })
-            }
-            return groups
-        },
-        groupDetailResults() {
-            var results = []            
-            this.groupDetail.forEach(g => {
-                this.groupResults(g).forEach(r => {
-                    if (!results.includes(r)) {
-                        var dr = results.find(dr => dr.Site === r.Site && dr.ID === r.ID)
-                        if (dr !== undefined)
-                            console.warn('app.computed.groupDetailResults', 'Same key, different instances', dr, r)
-                        else
-                            results.push(r)
-                    }
-                        
-                })
-            })
-            return results
-        },
-        groupDetailChanges() {
-            return this.changes.filter(c => this.groupDetailResults.find(r => c.Site === r.Site && c.ID === r.ID) !== undefined)
         },
         // changesFromActualResultsAndResultsFromCommittedChanges() {
         //     var changes = []
@@ -539,26 +444,6 @@ var app = new Vue({
         },
     },
     methods: {
-        groupResults(g) {
-            return this.results.filter(r => {
-                var rPreis = parse(r.Preis, 10000)
-                var rWohn = parse(r.Wohn, 70)
-                var rZimmer = parse(r.Zimmer, 3)
-                var rGrund = parse(r.Grund, 100)
-
-                return (
-                    Number.isInteger(g.ID) && g.ID > 0 && g.ID === r.Group
-                ) || (
-                    r.Group === undefined &&
-                    g.Titel.substring(0, 65) === r.Titel.substring(0, 65) &&
-                    ( g.Preis === undefined ||  rPreis === undefined || g.Preis  * 0.9  < rPreis && rPreis < g.Preis * 1.1) &&
-                    (  g.Wohn === undefined ||   rWohn === undefined || g.Wohn   * 0.95 < rWohn  && rWohn  < g.Wohn  * 1.05) &&
-                    (g.Zimmer === undefined || rZimmer === undefined || g.Zimmer === rZimmer) &&
-                    ( g.Grund === undefined ||  rGrund === undefined || g.Grund  * 0.95 < rGrund && rGrund < g.Grund * 1.05)
-                )
-            })
-        },
-
         open(event) {
             this.sites.filter(s => s.name === event.Site).forEach(s => {
                 var detail = event.ID || event._ID
@@ -571,39 +456,6 @@ var app = new Vue({
                 }
                 opn(detail)
             })
-        },
-
-        groupDetailToggle(event) {
-            var i = this.groupDetail.indexOf(event)
-            if (i === -1)
-                this.groupDetail.push(event)
-            else
-                this.groupDetail.splice(i, 1)
-        },
-        mergeGroup() {
-            var gID = this.groupDetail.find(g => Number.isInteger(g.ID) && g.ID > 0)
-            if (gID !== undefined)
-                gID = gID.ID
-            else
-                for(gID = 1; this.changes.find(c => c.Group === gID) !== undefined; ++gID) {}
-            
-            this.groupDetailResults
-                .filter(r => r.Group !== gID)
-                .forEach(r => {
-                    ['Change', 'Time'].forEach(c => {
-                        if (r[c])
-                            throw new Error('Not allowed property in Result: ' + c)
-                    })
-                    this.changes.push(Object.assign({
-                        Change: 'Upd',
-                        Time: Date.now(),
-                        Site: r.Site,
-                        ID: r.ID,
-                        Group: gID
-                    }))
-                })
-
-            this.groupDetail = this.groups.filter(g => g.ID === gID)
         },
 
         commit() {
