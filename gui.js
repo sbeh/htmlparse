@@ -273,8 +273,6 @@ var app = new Vue({
         sites: [],
         changes: [],
         groupDetail: [],
-        locationCache: {},
-        googleApiKey: null,
     },
     created() {
         ipc.on('storeSet', this.storeSet)
@@ -285,9 +283,6 @@ var app = new Vue({
         this.$watch('columnsOrder', this.storeChanged, {deep: true})
         this.$watch('sites', this.storeChanged, {deep: true})
         this.$watch('changes', this.storeChanged, {deep: true})
-        this.$watch('locationCache', this.storeChanged, {deep: true})
-
-        this.locationCacheRefresh()
     },
     computed: {
         results() {
@@ -478,79 +473,6 @@ var app = new Vue({
 
         //     return changes
         // }
-        locationGroups() {
-            function locationFromResult(r) {
-                var l = Object.assign({
-                    ID: r.Location,
-                    Ort: r.Ort
-                })
-
-                return l
-            }
-
-            var locations = []
-            var resultsNotInLocation = this.results.slice()
-
-            var r
-            while((r = resultsNotInLocation.shift()) !== undefined) {
-                var l = locationFromResult(r)
-                locations.push(l)
-
-                do {
-                    var locationChanged = false
-
-                    this.locationResults(l).forEach(r => {
-                        var ln = locationFromResult(r)
-                        _.difference(
-                            Object.keys(ln),
-                            Object.keys(l)
-                        ).forEach(c => {
-                            l[c] = ln[c]
-
-                            locationChanged = true
-                        })
-                    })
-                } while(locationChanged)
-
-                this.locationResults(l).forEach(r => {
-                    var i = resultsNotInLocation.indexOf(r)
-                    if (i === -1) {
-                        // TODO work around?
-                        i = resultsNotInLocation.findIndex(rn => r.Site === rn.Site && r.ID === rn.ID)
-                        if (i !== -1)
-                            console.warn('app.computed.locations', 'Same key, different instances', resultsNotInLocation[i], r)
-                    }
-                    if (i !== -1)
-                        resultsNotInLocation.splice(i, 1)
-                })
-
-                try {
-                    function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
-                        var R = 6371; // Radius of the earth in km
-                        var dLat = deg2rad(lat2-lat1);  // deg2rad below
-                        var dLon = deg2rad(lon2-lon1); 
-                        var a = 
-                        Math.sin(dLat/2) * Math.sin(dLat/2) +
-                        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-                        Math.sin(dLon/2) * Math.sin(dLon/2)
-                        ; 
-                        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-                        var d = R * c; // Distance in km
-                        return d;
-                    }
-                    
-                    function deg2rad(deg) {
-                        return deg * (Math.PI/180)
-                    }
-
-                    var loc = this.locationCache[l.Ort]
-                    if (loc.lat !== undefined &&
-                        loc.lon !== undefined)
-                        l.Distanz = getDistanceFromLatLonInKm(52.0693922,8.6026649, loc.lat, loc.lon).toFixed(1) + ' km'
-                } catch(_) {}
-            }
-            return locations
-        },
         changesUncommitted() {
             var changes = []
             
@@ -585,7 +507,7 @@ var app = new Vue({
                             Object.keys(rn),
                             Object.keys(ro)
                         ).forEach(c => {
-                            if (c === 'Group' || c === 'Location')
+                            if (c === 'Group')
                                 return
                             if (rn[c] === ro[c])
                                 return
@@ -636,24 +558,6 @@ var app = new Vue({
                 )
             })
         },
-        locationResults(l) {
-            return this.results.filter(r => {
-                return (
-                    Number.isInteger(l.ID) && l.ID > 0 && l.ID === r.Location
-                ) || (
-                    r.Location === undefined &&
-                    (
-                        l.Ort === r.Ort ||
-                        (
-                            l.Ort && r.Ort && (
-                                l.Ort.replace(/^\s*(\d+) .*$/, '$1') === r.Ort.replace(/^\s*(\d+) .*$/, '$1') ||
-                                l.Ort.replace(/\s/g, '') === r.Ort.replace(/\s/g, '')
-                            )
-                        )
-                    )
-                )
-            })
-        },
 
         open(event) {
             this.sites.filter(s => s.name === event.Site).forEach(s => {
@@ -701,29 +605,6 @@ var app = new Vue({
 
             this.groupDetail = this.groups.filter(g => g.ID === gID)
         },
-        mergeLocation() {
-            var lID = this.groupDetail.find(g => Number.isInteger(g.Location) && g.Location > 0)
-            if (lID !== undefined)
-                lID = lID.Location
-            else
-                for(lID = 1; this.changes.find(c => c.Location === lID) !== undefined; ++lID) {}
-            
-            this.groupDetailResults
-                .filter(r => r.Location !== lID)
-                .forEach(r => {
-                    ['Change', 'Time'].forEach(c => {
-                        if (r[c])
-                            throw new Error('Not allowed property in Result: ' + c)
-                    })
-                    this.changes.push(Object.assign({
-                        Change: 'Upd',
-                        Time: Date.now(),
-                        Site: r.Site,
-                        ID: r.ID,
-                        Location: lID
-                    }))
-                })
-        },
 
         commit() {
             var changes = this.changes.slice()
@@ -740,66 +621,6 @@ var app = new Vue({
             })
 
             this.changes = changes
-        },
-
-        locationCacheRefreshInternalCb(j, loc) {
-            if (j.readyState == XMLHttpRequest.DONE) {
-                var l = {
-                    Time: Date.now()
-                }
-
-                try {
-                    console.log('Fetch completed', j.status, j.statusText)
-                    if (j.status == 200) {
-                        var data = JSON.parse(j.response)
-                        l.lat = data.results[0].geometry.location.lat
-                        l.lon = data.results[0].geometry.location.lng
-                    }
-                } catch(e) {
-                    var data
-                    try {
-                        data = j.response
-                        data = JSON.parse(data)
-                    } catch(_) {}
-                    console.error(e, data)
-                }
-
-                this.$set(this.locationCache, loc, l)
-
-                this.locationCacheRefresh()
-            }
-        },
-        locationCacheRefreshInternal() {
-            var tooYoung = new Date()
-            tooYoung.setMonth(tooYoung.getMonth() - 1)
-            tooYoung = tooYoung.getTime()
-
-            var results = this.results
-            var shift = Math.floor(Math.random() * results.length)
-            for(var i = 0; i < results.length; ++i) {
-                var loc = this.results[(shift + i) % results.length].Ort
-                if (loc === undefined || loc === null || loc === '' || (
-                    this.locationCache[loc] !== undefined &&
-                    tooYoung < this.locationCache[loc].Time
-                ))
-                    continue
-            
-                var url = 'https://maps.googleapis.com/maps/api/geocode/json?key=' + this.googleApiKey + '&address=' + loc
-                console.log('Fetch starting', url)
-                var j = new XMLHttpRequest()
-                j.onreadystatechange = () => {
-                    this.locationCacheRefreshInternalCb(j, loc)
-                }
-                j.open('GET', url)
-                j.send()
-
-                return
-            }
-
-            setTimeout(this.locationCacheRefreshInternal, 10000 + Math.random() * 5000)
-        },
-        locationCacheRefresh() {
-            setTimeout(this.locationCacheRefreshInternal, 10000 + Math.random() * 5000)
         },
         
         storeChanged() {
@@ -825,8 +646,6 @@ var app = new Vue({
                 columnsOrder: this.columnsOrder,
                 sites: this.sites.map(s => Object.assign({}, s)),
                 changes: this.changes,
-                locationCache: this.locationCache,
-                googleApiKey: this.googleApiKey,
             }
             data.sites.forEach(s => s.results = [])
             ipc.send('storeSet', data)

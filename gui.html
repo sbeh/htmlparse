@@ -161,13 +161,6 @@ input, textarea {
             <site v-for='(site, i) in sites' v-model=sites[i] @del=siteDel(i)></site>
             <newsite @add=siteAdd></newsite>
         </div>
-        <div style='height: 100%'>
-            <h2>
-                Locations:
-            </h2>
-            <grid :data=locationGroups
-                :columns=locationGroups|columns></grid>
-        </div>
     </div>
     <div style='height: 700px'>
         <template v-if=changesUncommitted.length>
