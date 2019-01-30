@@ -118,7 +118,7 @@ input, textarea {
         <button @click='mode = "list"' title=Minimize>^</button>
         <div>
             <template v-if='mode == "content"'>
-                <textarea v-model=content></textarea>
+                <textarea v-if=content v-model=content></textarea>
                 <button @click=request title=Request>R</button>
             </template>
             <template v-else-if='mode == "data"'>
