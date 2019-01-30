@@ -110,7 +110,7 @@ input, textarea {
 <div :class='{ error: error }'>
     {{value.name}}
     <i v-if=value.results.length :class='{error: value.results.length != value.expected}'> ({{value.results.length}} results)</i>
-    <button v-if='value.url && value.method && value.regexp' @click=request title=Request>R</button>
+    <button v-if=value.url @click=request title=Request>R</button>
     <button @click='mode = "edit"' title=Edit>E</button>
     <button @click='mode = "content"' title=Content>C</button>
     <button @click='mode = "data"' title=Data>D</button>

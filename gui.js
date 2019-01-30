@@ -183,8 +183,9 @@ Vue.component('site', {
                     if (j.readyState == XMLHttpRequest.DONE)
                         setTimeout(go, 2000 + Math.random() * 1000)
                 } 
-                j.open(this.value.method, this.value.url.replace('$', p))
-                if (this.value.method == 'POST')
+                var method = this.value.method || 'GET'
+                j.open(method, this.value.url.replace('$', p))
+                if (method == 'POST')
                     j.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
                 j.send(this.value.data)
             }
