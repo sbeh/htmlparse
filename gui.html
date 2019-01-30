@@ -110,21 +110,21 @@ input, textarea {
 <div :class='{ error: error }'>
     {{value.name}}
     <i v-if=value.results.length :class='{error: value.results.length != value.expected}'> ({{value.results.length}} results)</i>
-    <button v-if='value.url && value.method && value.regexp' @click=request>R</button>
-    <button @click='mode = "edit"'>E</button>
-    <button @click='mode = "content"'>C</button>
-    <button @click='mode = "data"'>D</button>
+    <button v-if='value.url && value.method && value.regexp' @click=request title=Request>R</button>
+    <button @click='mode = "edit"' title=Edit>E</button>
+    <button @click='mode = "content"' title=Content>C</button>
+    <button @click='mode = "data"' title=Data>D</button>
     <template v-if='mode != "list"'>
-        <button @click='mode = "list"'>^</button>
+        <button @click='mode = "list"' title=Minimize>^</button>
         <div>
             <template v-if='mode == "content"'>
                 <textarea v-model=content></textarea>
-                <button @click=request>R</button>
+                <button @click=request title=Request>R</button>
             </template>
             <template v-else-if='mode == "data"'>
                 <input v-model=value.expected placeholder='Number of expected results' />
-                <input v-model=value.columns />
-                <textarea v-model=value.regexp></textarea>
+                <input v-model=value.columns placeholder='Column names of regular expression result' />
+                <textarea v-model=value.regexp placeholder='Regular Expression to parse Content'></textarea>
                 <grid   v-if=value.results.length
                         :data=value.results
                         :columns=value.results|columns></grid>
