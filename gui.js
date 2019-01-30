@@ -123,21 +123,23 @@ Vue.component('site', {
     },
     methods: {
         regexp_cb(data) {
-            this.error = data.error
-
+            var results = []
             if (data.result && data.result[0] && this.value.columns) {
                 var columns = this.value.columns.split(',')
-                var results = new Array(data.result.length)
                 for(var x = 0; x < data.result.length; ++x) {
-                    results[x] = {}
+                    var result = {}
                     for(var y = 0; y < data.result[x].length; ++y) {
                         var c = columns[y] ? columns[y] : y
-                        results[x][c] = results[x][c] ? results[x][c] + ' ' + data.result[x][y] : data.result[x][y]
+                        result[c] = result[c] ? result[c] + ' ' + data.result[x][y] : data.result[x][y]
                     }
+                    result = JSON.stringify(result)
+                    if (!results.includes(result))
+                        results.push(result)
                 }
-                this.value.results = results
-            } else
-                this.value.results = []
+            }
+
+            this.error = data.error
+            this.value.results = results.map(r => JSON.parse(r))
         },
         regexp() {
             if (this.value.regexp)
