@@ -657,8 +657,15 @@ var app = new Vue({
 
         open(event) {
             this.sites.filter(s => s.name === event.Site).forEach(s => {
-                if (s.link)
-                    opn(s.link.replace('$', event.ID))
+                var detail = event.ID || event._ID
+                if (!detail)
+                    return
+                if (!detail.match(/^https?:\/\//)) {
+                    if (!s.link)
+                        return
+                    detail = s.link.replace('$', detail)
+                }
+                opn(detail)
             })
         },
 
